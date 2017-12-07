@@ -9,22 +9,122 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## Objective of the assignment
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+The objective of this assignment is to build a machine learning model in order to predict how well each of the 20 test cases perform their exercises.
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+The data used for modelling is the Weight Lifting Exercise Dataset from Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
 
-```{r cars}
-summary(cars)
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+library(ggplot2)
+library(kernlab)
+library(lattice)
+library(ISLR)
+library(Hmisc)
+library(ElemStatLearn)
+library(randomForest)
+library(gbm)
+library(MASS)
+library(e1071)
+library(klaR)
+library(pgmm)
+library(rpart)
+library(AppliedPredictiveModeling)
+library(rpart.plot)
+library(quantmod)
+library(lubridate)
+library(forecast)
+library(RANN)
 ```
 
-## Including Plots
+## Exploratory Analysis and Data Cleaning
 
-You can also embed plots, for example:
+Before the exploratory analysis has been carried out, the datasets are downloaded. At first glance, some entries in the training set are #DIV/0!'s. These will have to be replaced by NAs. 
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+It is seen that rows where new_window is "yes" had values vs the rows where new_window is "no" didn't. Since the test dataset only contains new_window equal "no", the training dataset is then subsequently filtered.
+
+In cases where the whole colomn consists of NAs, these columns are removed from the modelling process. 
+
+It seems as though the first 7 columns of the training set contains user-specific information and therefore were removed from the modelling process.
+
+K-nearest-neighbour method is used to impute the remaining NAs.
+
+```{r}
+set.seed(100)
+trainingHAR = read.csv("~/Downloads/pml-training.csv")
+validationHAR = read.csv("~/Downloads/pml-testing.csv")
+
+#Setting the response to be a factor
+trainingHAR$classe = as.factor(trainingHAR$classe)
+
+#Replacing #DIV/0! by NAs
+trainingHARrefined = read.csv("~/Downloads/pml-training.csv",na.strings=c('#DIV/0!','','NA'),stringsAsFactors = F)
+trainingHARrefined$classe = as.factor(trainingHARrefined$classe)
+validationHARrefined = read.csv("~/Downloads/pml-testing.csv",na.strings=c('#DIV/0!','','NA'),stringsAsFactors = F)
+
+#Removing rows where new_windows is yes
+trainingHARfiltered1 = subset(trainingHARrefined, new_window=="no")
+
+#Removing columns with NAs
+trainingHARfiltered2 = Filter(function(y)!all(is.na(y)),trainingHARfiltered1)
+
+#Removing the first 7 columns
+trainingHARfiltered3 = trainingHARfiltered2[,-(1:7)]
+
+#Filtering out near Zero variance
+#Looking at details from the nearZeroVar function.
+nzv = nearZeroVar(trainingHARfiltered3,saveMetrics=TRUE)
+#Looking at the first 10 columns. There are none so don't need to use this.
+nzv[nzv$nzv,][1:10,]
+dim(trainingHARfiltered3)
+
+#In case some columns have many NA values, I'm going to use the K-nearest-neighbour to impute the data
+proObj = preProcess(trainingHARfiltered3[,-53],method="knnImpute")
+trainingHARrefined3 = predict(proObj,trainingHARfiltered3)
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+## Data Slicing
+
+The training dataset is split 75% into the training set and the remaining 25% on the testing set.
+
+```{r}
+#Creating a training and testing set
+inTrain = createDataPartition(trainingHARrefined3$classe,p=3/4)[[1]]
+trainingHARrefined4 = trainingHARrefined3[inTrain,]
+testingHARrefined4 = trainingHARrefined3[-inTrain,]
+```
+
+## Fitting a random forest to the modelling set
+
+A random forest model with a 3-fold cross validation is fitted to the training set with all default settings. The model accuracy is then tested against the test set.
+
+```{r}
+
+#Using a 3-fold cross validation
+trainControl = trainControl(method="cv",number=3)
+
+#Fitting a random forest model using all remaining variables
+modRF = train(classe~.,data=trainingHARrefined4,method="rf",trControl=trainControl)
+print(modRF)
+predRF = predict(modRF,testingHARrefined4)
+confusionMatrix(predRF,testingHARrefined4$classe) 
+```
+
+## Testing on the validation set using the fitted random forest model
+
+```{r}
+#Using Preprocessing function to impute the data using proObj as defined earlier.
+validationHARrefined3 = predict(proObj, validationHARrefined)
+predVALIDATION = predict(modRF,validationHARrefined3)
+print(predVALIDATION)
+```
+
+
+
+
+
+
+
+
+
